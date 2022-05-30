@@ -5165,7 +5165,8 @@ namespace Aws
 
         struct CrtRequestCallbackUserData {
           const S3CrtClient *s3CrtClient;
-          const void *userCallback;
+          GetObjectResponseReceivedHandler getResponseHandler;
+          PutObjectResponseReceivedHandler putResponseHandler;
           std::shared_ptr<const Aws::Client::AsyncCallerContext> userCallbackContext;
           const Aws::AmazonWebServiceRequest *originalRequest;
           std::shared_ptr<Aws::Http::HttpRequest> request;

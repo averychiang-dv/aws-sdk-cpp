@@ -333,6 +333,23 @@ static int S3CrtRequestGetBodyCallback(struct aws_s3_meta_request *meta_request,
   return AWS_OP_SUCCESS;
 }
 
+// DarkVision Implementation of sent body callback
+static int S3CrtRequestSentBodyCallback(struct aws_s3_meta_request *meta_request, const struct aws_byte_cursor *body, void *user_data)
+{
+  AWS_UNREFERENCED_PARAM(meta_request);
+
+  auto *userData = static_cast<S3CrtClient::CrtRequestCallbackUserData*>(user_data);
+
+  auto& sentHandler = userData->request->GetDataSentEventHandler();
+  if (sentHandler)
+  {
+      sentHandler(userData->request.get(), static_cast<long long>(body->len));
+  }
+  AWS_LOGSTREAM_TRACE(ALLOCATION_TAG, body->len << " bytes sent in request body.");
+
+  return AWS_OP_SUCCESS;
+}
+
 static void S3CrtRequestFinishCallback(struct aws_s3_meta_request *meta_request,
     const struct aws_s3_meta_request_result *meta_request_result, void *user_data)
 {
@@ -452,6 +469,7 @@ void S3CrtClient::InitCommonCrtRequestOption(CrtRequestCallbackUserData *userDat
   options->user_data = static_cast<void*>(userData);
   options->headers_callback = S3CrtRequestHeadersCallback;
   options->body_callback = S3CrtRequestGetBodyCallback;
+  options->sent_callback = S3CrtRequestSentBodyCallback;
   options->finish_callback = S3CrtRequestFinishCallback;
 }
 
@@ -460,8 +478,10 @@ static void GetObjectRequestShutdownCallback(void *user_data)
   auto *userData = static_cast<S3CrtClient::CrtRequestCallbackUserData*>(user_data);
   // call user callback and release user_data
   S3Crt::Model::GetObjectOutcome outcome(userData->s3CrtClient->GenerateStreamOutcome(userData->response));
-  auto handler = static_cast<const GetObjectResponseReceivedHandler*>(userData->userCallback);
-  (*handler)(userData->s3CrtClient, *(reinterpret_cast<const GetObjectRequest*>(userData->originalRequest)), std::move(outcome), userData->userCallbackContext);
+  if (userData->getResponseHandler)
+  {
+      userData->getResponseHandler(userData->s3CrtClient, *(reinterpret_cast<const GetObjectRequest*>(userData->originalRequest)), std::move(outcome), userData->userCallbackContext);
+  }
 
   Aws::Delete(userData);
 }
@@ -491,7 +511,7 @@ void S3CrtClient::GetObjectAsync(const GetObjectRequest& request, const GetObjec
   aws_s3_meta_request_options options;
   AWS_ZERO_STRUCT(options);
 
-  userData->userCallback = static_cast<const void*>(&handler);
+  userData->getResponseHandler = handler;
   userData->userCallbackContext = context;
   InitCommonCrtRequestOption(userData, &options, &request, uri, Aws::Http::HttpMethod::HTTP_GET);
   options.shutdown_callback = GetObjectRequestShutdownCallback;
@@ -528,8 +548,10 @@ static void PutObjectRequestShutdownCallback(void *user_data)
   auto *userData = static_cast<S3CrtClient::CrtRequestCallbackUserData*>(user_data);
   // call user callback and release user_data
   S3Crt::Model::PutObjectOutcome outcome(userData->s3CrtClient->GenerateXmlOutcome(userData->response));
-  auto handler = static_cast<const PutObjectResponseReceivedHandler*>(userData->userCallback);
-  (*handler)(userData->s3CrtClient, *(reinterpret_cast<const PutObjectRequest*>(userData->originalRequest)), std::move(outcome), userData->userCallbackContext);
+  if (userData->putResponseHandler)
+  {
+      userData->putResponseHandler(userData->s3CrtClient, *(reinterpret_cast<const PutObjectRequest*>(userData->originalRequest)), std::move(outcome), userData->userCallbackContext);
+  }
 
   Aws::Delete(userData);
 }
@@ -559,7 +581,7 @@ void S3CrtClient::PutObjectAsync(const PutObjectRequest& request, const PutObjec
   aws_s3_meta_request_options options;
   AWS_ZERO_STRUCT(options);
 
-  userData->userCallback = static_cast<const void*>(&handler);
+  userData->putResponseHandler = handler;
   userData->userCallbackContext = context;
   InitCommonCrtRequestOption(userData, &options, &request, uri, Aws::Http::HttpMethod::HTTP_PUT);
   options.shutdown_callback = PutObjectRequestShutdownCallback;
