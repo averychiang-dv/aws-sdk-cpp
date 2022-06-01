@@ -124,6 +124,7 @@
 #include <aws/crt/http/HttpRequestResponse.h>
 #include <aws/crt/io/Stream.h>
 #include <aws/http/request_response.h>
+#include <aws/io/uri.h>
 #include <aws/common/string.h>
 
 using namespace Aws::Utils;
@@ -514,6 +515,14 @@ void S3CrtClient::GetObjectAsync(const GetObjectRequest& request, const GetObjec
   userData->getResponseHandler = handler;
   userData->userCallbackContext = context;
   InitCommonCrtRequestOption(userData, &options, &request, uri, Aws::Http::HttpMethod::HTTP_GET);
+
+  Aws::String uriStr = uri.GetURIString();
+  struct aws_uri uri_endpoint;
+  AWS_ZERO_STRUCT(uri_endpoint);
+  struct aws_byte_cursor uri_cursor = aws_byte_cursor_from_c_str(uriStr.c_str());
+  aws_uri_init_parse(&uri_endpoint, Aws::get_aws_allocator(), &uri_cursor);
+  options.endpoint = &uri_endpoint;
+
   options.shutdown_callback = GetObjectRequestShutdownCallback;
   options.type = AWS_S3_META_REQUEST_TYPE_GET_OBJECT;
   struct aws_signing_config_aws signing_config_override = m_s3CrtSigningConfig;
