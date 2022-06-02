@@ -141,6 +141,27 @@ using namespace Aws::Utils::Xml;
 static const char* SERVICE_NAME = "s3";
 static const char* ALLOCATION_TAG = "S3CrtClient";
 
+class S3MetaRequestCancellationToken : public CancellationToken
+{
+public:
+    S3MetaRequestCancellationToken(struct aws_s3_meta_request *request)
+        : m_s3_meta_request(request)
+    {}
+
+  private:
+    void DoCancel();
+
+    struct aws_s3_meta_request* m_s3_meta_request = nullptr;
+};
+
+void CancellationToken::Cancel()
+{
+  DoCancel();
+}
+
+void S3MetaRequestCancellationToken::DoCancel() {
+  aws_s3_meta_request_cancel(m_s3_meta_request);
+}
 
 S3CrtClient::S3CrtClient(const S3Crt::ClientConfiguration& clientConfiguration, Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy signPayloads, bool useVirtualAddressing, Aws::S3Crt::US_EAST_1_REGIONAL_ENDPOINT_OPTION USEast1RegionalEndPointOption) :
   BASECLASS(clientConfiguration,
@@ -487,22 +508,25 @@ static void GetObjectRequestShutdownCallback(void *user_data)
   Aws::Delete(userData);
 }
 
-void S3CrtClient::GetObjectAsync(const GetObjectRequest& request, const GetObjectResponseReceivedHandler& handler, const std::shared_ptr<const Aws::Client::AsyncCallerContext>& context) const
+std::weak_ptr<CancellationToken> S3CrtClient::GetObjectAsync(const GetObjectRequest& request, const GetObjectResponseReceivedHandler& handler, const std::shared_ptr<const Aws::Client::AsyncCallerContext>& context) const
 {
   if (!request.BucketHasBeenSet())
   {
     AWS_LOGSTREAM_ERROR("GetObject", "Required field: Bucket, is not set");
-    return handler(this, request, GetObjectOutcome(Aws::Client::AWSError<S3CrtErrors>(S3CrtErrors::MISSING_PARAMETER, "MISSING_PARAMETER", "Missing required field [Bucket]", false)), context);
+    handler(this, request, GetObjectOutcome(Aws::Client::AWSError<S3CrtErrors>(S3CrtErrors::MISSING_PARAMETER, "MISSING_PARAMETER", "Missing required field [Bucket]", false)), context);
+    return std::weak_ptr<CancellationToken>();
   }
   if (!request.KeyHasBeenSet())
   {
     AWS_LOGSTREAM_ERROR("GetObject", "Required field: Key, is not set");
-    return handler(this, request, GetObjectOutcome(Aws::Client::AWSError<S3CrtErrors>(S3CrtErrors::MISSING_PARAMETER, "MISSING_PARAMETER", "Missing required field [Key]", false)), context);
+    handler(this, request, GetObjectOutcome(Aws::Client::AWSError<S3CrtErrors>(S3CrtErrors::MISSING_PARAMETER, "MISSING_PARAMETER", "Missing required field [Key]", false)), context);
+    return std::weak_ptr<CancellationToken>();
   }
   ComputeEndpointOutcome computeEndpointOutcome = ComputeEndpointString(request.GetBucket());
   if (!computeEndpointOutcome.IsSuccess())
   {
-    return handler(this, request, GetObjectOutcome(computeEndpointOutcome.GetError()), context);
+    handler(this, request, GetObjectOutcome(computeEndpointOutcome.GetError()), context);
+    return std::weak_ptr<CancellationToken>();
   }
   Aws::Http::URI uri = computeEndpointOutcome.GetResult().endpoint;
   uri.AddPathSegments(request.GetKey());
@@ -533,8 +557,13 @@ void S3CrtClient::GetObjectAsync(const GetObjectRequest& request, const GetObjec
   std::shared_ptr<Aws::Crt::Http::HttpRequest> crtHttpRequest = userData->request->ToCrtHttpRequest();
   options.message= crtHttpRequest->GetUnderlyingMessage();
   userData->crtHttpRequest = crtHttpRequest;
-  aws_s3_meta_request *rawRequest = aws_s3_client_make_meta_request(m_s3CrtClient, &options);
+  struct aws_s3_meta_request *rawRequest = aws_s3_client_make_meta_request(m_s3CrtClient, &options);
   userData->underlyingS3Request = rawRequest;
+
+  auto cancellationToken = std::make_shared<S3MetaRequestCancellationToken>(rawRequest);
+  userData->cancellationToken = cancellationToken;
+
+  return cancellationToken;
 }
 
 GetObjectOutcome S3CrtClient::GetObject(const GetObjectRequest& request) const
@@ -565,22 +594,25 @@ static void PutObjectRequestShutdownCallback(void *user_data)
   Aws::Delete(userData);
 }
 
-void S3CrtClient::PutObjectAsync(const PutObjectRequest& request, const PutObjectResponseReceivedHandler& handler, const std::shared_ptr<const Aws::Client::AsyncCallerContext>& context) const
+std::weak_ptr<CancellationToken> S3CrtClient::PutObjectAsync(const PutObjectRequest& request, const PutObjectResponseReceivedHandler& handler, const std::shared_ptr<const Aws::Client::AsyncCallerContext>& context) const
 {
   if (!request.BucketHasBeenSet())
   {
     AWS_LOGSTREAM_ERROR("PutObject", "Required field: Bucket, is not set");
-    return handler(this, request, PutObjectOutcome(Aws::Client::AWSError<S3CrtErrors>(S3CrtErrors::MISSING_PARAMETER, "MISSING_PARAMETER", "Missing required field [Bucket]", false)), context);
+    handler(this, request, PutObjectOutcome(Aws::Client::AWSError<S3CrtErrors>(S3CrtErrors::MISSING_PARAMETER, "MISSING_PARAMETER", "Missing required field [Bucket]", false)), context);
+    return std::weak_ptr<CancellationToken>();
   }
   if (!request.KeyHasBeenSet())
   {
     AWS_LOGSTREAM_ERROR("PutObject", "Required field: Key, is not set");
-    return handler(this, request, PutObjectOutcome(Aws::Client::AWSError<S3CrtErrors>(S3CrtErrors::MISSING_PARAMETER, "MISSING_PARAMETER", "Missing required field [Key]", false)), context);
+    handler(this, request, PutObjectOutcome(Aws::Client::AWSError<S3CrtErrors>(S3CrtErrors::MISSING_PARAMETER, "MISSING_PARAMETER", "Missing required field [Key]", false)), context);
+    return std::weak_ptr<CancellationToken>();
   }
   ComputeEndpointOutcome computeEndpointOutcome = ComputeEndpointString(request.GetBucket());
   if (!computeEndpointOutcome.IsSuccess())
   {
-    return handler(this, request, PutObjectOutcome(computeEndpointOutcome.GetError()), context);
+    handler(this, request, PutObjectOutcome(computeEndpointOutcome.GetError()), context);
+    return std::weak_ptr<CancellationToken>();
   }
   Aws::Http::URI uri = computeEndpointOutcome.GetResult().endpoint;
   uri.AddPathSegments(request.GetKey());
@@ -605,6 +637,11 @@ void S3CrtClient::PutObjectAsync(const PutObjectRequest& request, const PutObjec
   userData->crtHttpRequest = crtHttpRequest;
   aws_s3_meta_request *rawRequest = aws_s3_client_make_meta_request(m_s3CrtClient, &options);
   userData->underlyingS3Request = rawRequest;
+
+  auto cancellationToken = std::make_shared<S3MetaRequestCancellationToken>(rawRequest);
+  userData->cancellationToken = cancellationToken;
+
+  return cancellationToken;
 }
 
 PutObjectOutcome S3CrtClient::PutObject(const PutObjectRequest& request) const

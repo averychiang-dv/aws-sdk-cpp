@@ -517,6 +517,15 @@ namespace Aws
     //max expiration for presigned urls in s3 is 7 days.
     static const unsigned MAX_EXPIRATION_SECONDS = 7 * 24 * 60 * 60;
 
+    class AWS_S3CRT_API CancellationToken
+    {
+    public:
+        void Cancel();
+
+    private:
+        virtual void DoCancel() = 0;
+    };
+
     /**
      * <p/>
      */
@@ -2441,7 +2450,7 @@ namespace Aws
         /**
          * An Async wrapper for GetObject that queues the request into a thread executor and triggers associated callback when operation has finished.
          */
-        virtual void GetObjectAsync(const Model::GetObjectRequest& request, const GetObjectResponseReceivedHandler& handler, const std::shared_ptr<const Aws::Client::AsyncCallerContext>& context = nullptr) const;
+        virtual std::weak_ptr<CancellationToken> GetObjectAsync(const Model::GetObjectRequest& request, const GetObjectResponseReceivedHandler& handler, const std::shared_ptr<const Aws::Client::AsyncCallerContext>& context = nullptr) const;
 
         /**
          * <p>Returns the access control list (ACL) of an object. To use this operation,
@@ -4323,7 +4332,7 @@ namespace Aws
         /**
          * An Async wrapper for PutObject that queues the request into a thread executor and triggers associated callback when operation has finished.
          */
-        virtual void PutObjectAsync(const Model::PutObjectRequest& request, const PutObjectResponseReceivedHandler& handler, const std::shared_ptr<const Aws::Client::AsyncCallerContext>& context = nullptr) const;
+        virtual std::weak_ptr<CancellationToken> PutObjectAsync(const Model::PutObjectRequest& request, const PutObjectResponseReceivedHandler& handler, const std::shared_ptr<const Aws::Client::AsyncCallerContext>& context = nullptr) const;
 
         /**
          * <p>Uses the <code>acl</code> subresource to set the access control list (ACL)
@@ -5172,7 +5181,8 @@ namespace Aws
           std::shared_ptr<Aws::Http::HttpRequest> request;
           std::shared_ptr<Aws::Http::HttpResponse> response;
           std::shared_ptr<Aws::Crt::Http::HttpRequest> crtHttpRequest;
-          aws_s3_meta_request *underlyingS3Request;
+          aws_s3_meta_request *underlyingS3Request = nullptr;
+          std::shared_ptr<CancellationToken> cancellationToken;
         };
 
         Aws::Client::XmlOutcome GenerateXmlOutcome(const std::shared_ptr<Http::HttpResponse>& response) const;
